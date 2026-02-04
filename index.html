@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Local Transcriber | Full Media Support</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .progress-glow { box-shadow: 0 0 15px rgba(99, 102, 241, 0.6); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-[#0f172a] text-slate-200 min-h-screen font-sans">
+
+    <div class="max-w-6xl mx-auto py-10 px-6">
+        <header class="flex flex-col items-center mb-12 text-center">
+            <div class="bg-indigo-600 p-4 rounded-full mb-4 shadow-2xl shadow-indigo-500/20">
+                <i class="fas fa-microchip text-3xl text-white"></i>
+            </div>
+            <h1 class="text-5xl font-extrabold tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
+                AI Media Transcriber
+            </h1>
+            <p class="text-slate-400 mt-4 text-lg">Suporte a Áudio e Vídeo (MP4, MKV, MP3, etc) com processamento 100% local.</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <div class="lg:col-span-1 space-y-4">
+                <div class="bg-slate-800/50 border border-slate-700 p-6 rounded-3xl backdrop-blur-md">
+                    <h2 class="text-xs font-black uppercase tracking-widest text-indigo-400 mb-4">Painel de Controle</h2>
+                    
+                    <div id="statusBox" class="mb-6 p-3 bg-slate-900/50 rounded-2xl border border-slate-700">
+                        <div class="flex items-center gap-2 text-sm mb-2">
+                            <span id="dot" class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
+                            <span id="statusLabel">Iniciando IA...</span>
+                        </div>
+                        <div id="dlBarContainer" class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="dlBar" class="bg-indigo-500 h-full w-0 transition-all duration-300"></div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3">
+                        <input type="file" id="mediaUpload" class="hidden" accept="audio/*,video/*">
+                        <button onclick="document.getElementById('mediaUpload').click()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-bold transition-all flex items-center justify-center gap-2">
+                            <i class="fas fa-file-video"></i> Abrir Mídia
+                        </button>
+                        <button id="recordBtn" class="w-full py-4 bg-slate-700 hover:bg-slate-600 rounded-2xl font-bold transition flex items-center justify-center gap-2">
+                            <i class="fas fa-microphone"></i> Gravar
+                        </button>
+                    </div>
+                </div>
+
+                <div id="procBox" class="hidden bg-slate-800/50 border border-indigo-500/30 p-6 rounded-3xl animate-in fade-in zoom-in duration-300">
+                    <h3 class="text-[10px] font-bold uppercase text-indigo-300 mb-3">Progresso da Transcrição</h3>
+                    <div class="w-full bg-slate-900 h-3 rounded-full overflow-hidden border border-slate-700">
+                        <div id="procBar" class="bg-gradient-to-r from-indigo-500 to-cyan-400 h-full w-0 transition-all progress-glow"></div>
+                    </div>
+                    <p id="procPercent" class="text-center text-xs mt-2 font-mono text-indigo-400">0%</p>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3">
+                <div class="bg-slate-800/30 border border-slate-700 rounded-[2rem] min-h-[550px] flex flex-col shadow-2xl backdrop-blur-sm overflow-hidden">
+                    <div class="px-8 py-5 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/40">
+                        <span class="text-xs font-bold text-slate-500 uppercase tracking-widest">Documento Transcrito</span>
+                        <div class="flex gap-4">
+                            <button onclick="copyText()" class="text-slate-400 hover:text-indigo-400 transition"><i class="fas fa-copy"></i></button>
+                            <button onclick="downloadText()" class="text-slate-400 hover:text-indigo-400 transition"><i class="fas fa-download"></i></button>
+                        </div>
+                    </div>
+                    <textarea id="output" class="flex-1 p-10 bg-transparent outline-none resize-none leading-relaxed text-slate-300 text-lg placeholder:text-slate-700 focus:placeholder:text-indigo-900/30 transition-all" placeholder="Arraste um vídeo ou áudio para começar..."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
+
+        let transcriber;
+        const statusLabel = document.getElementById('statusLabel');
+        const dlBar = document.getElementById('dlBar');
+        const procBar = document.getElementById('procBar');
+        const procBox = document.getElementById('procBox');
+        const procPercent = document.getElementById('procPercent');
+        const output = document.getElementById('output');
+
+        async function init() {
+            try {
+                transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny', {
+                    progress_callback: (p) => {
+                        if (p.status === 'progress') {
+                            dlBar.style.width = p.progress + '%';
+                            statusLabel.innerText = `Baixando IA: ${Math.round(p.progress)}%`;
+                        }
+                        if (p.status === 'ready') {
+                            statusLabel.innerText = 'IA Pronta e Offline';
+                            document.getElementById('dot').classList.replace('bg-yellow-500', 'bg-green-500');
+                            document.getElementById('dlBarContainer').classList.add('hidden');
+                        }
+                    }
+                });
+            } catch (e) {
+                statusLabel.innerText = 'Erro ao carregar modelo.';
+            }
+        }
+
+        init();
+
+        async function processMedia(audioData) {
+            procBox.classList.remove('hidden');
+            output.value = "";
+            
+            // Simulação de progresso baseada em chunks para a barra
+            const result = await transcriber(audioData, { 
+                language: 'portuguese',
+                task: 'transcribe',
+                chunk_length_s: 30,
+                stride_length_s: 5,
+                // Callback de progresso da transcrição real
+                callback_function: (beams) => {
+                    // Aqui a barra avança conforme os blocos de áudio são processados
+                    const progress = Math.min(95, (procBar.style.width.replace('%','') || 0) * 1 + 2);
+                    updateProcBar(progress);
+                }
+            });
+
+            updateProcBar(100);
+            output.value = result.text;
+            setTimeout(() => procBox.classList.add('hidden'), 2000);
+        }
+
+        function updateProcBar(pct) {
+            procBar.style.width = pct + '%';
+            procPercent.innerText = Math.round(pct) + '%';
+        }
+
+        document.getElementById('mediaUpload').onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            statusLabel.innerText = "Lendo arquivo...";
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            const arrayBuffer = await file.arrayBuffer();
+            
+            try {
+                const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
+                processMedia(decodedData.getChannelData(0));
+            } catch (err) {
+                alert("Erro ao ler mídia. Verifique se é um arquivo de áudio ou vídeo válido.");
+            }
+        };
+
+        window.copyText = () => {
+            navigator.clipboard.writeText(output.value);
+            alert("Copiado!");
+        };
+
+        window.downloadText = () => {
+            const blob = new Blob([output.value], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'transcricao.txt';
+            a.click();
+        };
+    </script>
+</body>
+</html>
